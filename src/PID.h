@@ -1,26 +1,15 @@
 #ifndef PID_H
 #define PID_H
 
+#include <list>
+
 class PID {
 public:
-  /*
-  * Errors
-  */
-  double p_error;
-  double i_error;
-  double d_error;
-
-  /*
-  * Coefficients
-  */ 
-  double Kp;
-  double Ki;
-  double Kd;
 
   /*
   * Constructor
   */
-  PID();
+  PID(double kp, double ki, double kd);
 
   /*
   * Destructor.
@@ -28,19 +17,28 @@ public:
   virtual ~PID();
 
   /*
-  * Initialize PID.
-  */
-  void Init(double Kp, double Ki, double Kd);
+   * Update the PID error variables given cross track error.
+   */
+  double getSteering(double cte);
 
+  inline double totalError() const { return total_error_; }
+  inline unsigned int iterCount() const { return iter_cnt_; }
+  inline double prevCTE() const { return prev_cte_; }
+  inline double maxCTE() const { return max_cte_; }
+  
+private:
   /*
-  * Update the PID error variables given cross track error.
-  */
-  void UpdateError(double cte);
+   * Coefficients
+   */ 
+  double kp_;
+  double ki_;
+  double kd_;
 
-  /*
-  * Calculate the total PID error.
-  */
-  double TotalError();
+  std::list<double> total_cte_;
+  double prev_cte_;
+  double max_cte_;
+  double total_error_;
+  unsigned int iter_cnt_;
 };
 
 #endif /* PID_H */

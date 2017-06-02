@@ -3,9 +3,11 @@
 #include "json.hpp"
 #include "PID.h"
 #include <math.h>
+#include <climits>
+#include <vector>
 
-// for convenience
 using json = nlohmann::json;
+using std::vector;
 
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
@@ -28,14 +30,38 @@ std::string hasData(std::string s) {
   return "";
 }
 
-int main()
+int main(int argc, char *argv[])
 {
   uWS::Hub h;
 
-  PID pid;
-  // TODO: Initialize the pid variable.
+  const double TOLERANCE = 0.1;
+  int TWIDDLE_ITER = -1;
+  if (argc >= 2) TWIDDLE_ITER = atoi(argv[1]);
+  
+  // We're not realling covering the cost for p(0, 0, 0) but it should
+  // not be relevant in this scenario
+  // If no argument is passed, we don't perform the twiddle parameter
+  // tuning and instead use a set of predefined PID parameters
+  vector<double> dp{0.4, 0.1, 2};
+  vector<double> p{dp[0], 0, 0};
+  if (TWIDDLE_ITER <= 0) p = vector<double>{0.25, 0.0, 8};
 
-  h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
+  // Initializing with a small but not unbeatable number
+  // Trying to get rid of scenarios where the car being stopped on the curb
+  // is actually better than moving (another option would be to take the
+  // average speed into account
+  double best_error = std::numeric_limits<double>::max();
+  PID pid(p[0], p[1], p[2]);
+  bool increase = true;
+  int index = 0;
+  int tuning_iter = 0;
+
+  h.onMessage([&pid, &p, &dp, &index,
+               &increase, &best_error, &tuning_iter,
+               &TWIDDLE_ITER, TOLERANCE](uWS::WebSocket<uWS::SERVER> ws,
+                                         char *data,
+                                         size_t length,
+                                         uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
@@ -46,27 +72,73 @@ int main()
         auto j = json::parse(s);
         std::string event = j[0].get<std::string>();
         if (event == "telemetry") {
-          // j[1] is the data JSON object
-          double cte = std::stod(j[1]["cte"].get<std::string>());
-          double speed = std::stod(j[1]["speed"].get<std::string>());
-          double angle = std::stod(j[1]["steering_angle"].get<std::string>());
-          double steer_value;
-          /*
-          * TODO: Calcuate steering value here, remember the steering value is
-          * [-1, 1].
-          * NOTE: Feel free to play around with the throttle and speed. Maybe use
-          * another PID controller to control the speed!
-          */
-          
-          // DEBUG
-          std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
+          // Twiddle update
+          if (pid.iterCount() >= TWIDDLE_ITER && TWIDDLE_ITER > 0) {
+            double cur_error = pid.totalError();
+            std::cout << "----------- Twiddle update (" << tuning_iter++ << ")" << std::endl
+                      << " P = [" << p[0] << ", " << p[1] << ", " << p[2] << "]" << std::endl
+                      << " DP = [" << dp[0] << ", " << dp[1] << ", " << dp[2] << "]" << std::endl
+                      << " Current error: " << cur_error << std::endl
+                      << " Best error: " << best_error << std::endl
+                      << " Index: " << index << std::endl
+                      << " Increase: " << increase << std::endl;
+            // Simple state machine controlling which index to update and by how much
+            if (cur_error < best_error) {              
+              best_error = cur_error;
+              dp[index] *= 1.1;
+              index = (index + 1) % 3;
+              increase = true;
+              p[index] += dp[index];
+            } else {
+              if (increase) {
+                p[index] -= 2 * dp[index];
+                increase = false;
+              } else {
+                p[index] += dp[index];
+                dp[index] *= 0.9;
+                index = (index + 1) % 3;
+                increase = true;
+                p[index] += dp[index];
+              }
+            }
+            std::string msg = "42[\"reset\",{}]";
+            ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+            pid = PID(p[0], p[1], p[2]);
+            double dp_sum = dp[0] + dp[1] + dp[2];
+            if (dp_sum < TOLERANCE) {
+              std::cout << "Twiddle finished" << std::endl
+                        << " P = [" << p[0] << ", " << p[1] << ", " << p[2] << "]" << std::endl
+                        << " DP = [" << dp[0] << ", " << dp[1] << ", " << dp[2] << "]" << std::endl
+                        << " Best error: " << best_error << std::endl;
+              TWIDDLE_ITER = -1;
+            }
+            std::cout << "----------- Trying next  P = ["
+                      << p[0] << ", " << p[1] << ", " << p[2] << "]" << std::endl;
+          } else {
+            // Steering update
+            // j[1] is the data JSON object
+            double cte = std::stod(j[1]["cte"].get<std::string>());
+            double speed = std::stod(j[1]["speed"].get<std::string>());
+            double angle = std::stod(j[1]["steering_angle"].get<std::string>());          
+            double steer_value = pid.getSteering(cte);
+             
+            // DEBUG
+            // std::cout << pid.iterCount()
+            //           << " cte = " << cte << ", "
+            //           << " total cte = " << pid.totalCTE() << ", "
+            //           << " prev cte = " << pid.prevCTE() << ", "
+            //           << " steering = " << steer_value
+            //           << std::endl;
 
-          json msgJson;
-          msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.3;
-          auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-          std::cout << msg << std::endl;
-          ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+            double max_cte = pid.maxCTE();
+            if (max_cte < 1e-9) max_cte = 1000;
+            double throttle = 0.5 - (0.49 * (fabs(cte) / max_cte));
+            json msgJson;
+            msgJson["steering_angle"] = steer_value;
+            msgJson["throttle"] = throttle;
+            auto msg = "42[\"steer\"," + msgJson.dump() + "]";
+            ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+          }
         }
       } else {
         // Manual driving

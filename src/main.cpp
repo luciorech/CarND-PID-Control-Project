@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
   // tuning and instead use a set of predefined PID parameters
   vector<double> dp{0.4, 0.1, 2};
   vector<double> p{dp[0], 0, 0};
-  if (TWIDDLE_ITER <= 0) p = vector<double>{0.25, 0.0, 8};
+  if (TWIDDLE_ITER <= 0) p = vector<double>{0.25, 0.0, 5};
 
   // Initializing with a small but not unbeatable number
   // Trying to get rid of scenarios where the car being stopped on the curb

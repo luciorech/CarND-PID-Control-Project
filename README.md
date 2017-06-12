@@ -3,6 +3,99 @@ Self-Driving Car Engineer Nanodegree Program
 
 ---
 
+## Project goals
+
+In this project I implement a PID controller to successfully 
+(and safely) drive a car around Udacity's self-driving car simulator. A 
+PID controller is a control loop feedback mechanism that relies on three 
+parameters - proportional (P), integral (I) and derivative (D). At every 
+control iteration, the implemented controller receives the current cross-track 
+error from the simulator and uses the PID parameters to update the car's 
+steering angle.
+ 
+#### Proportional (P) coefficient
+
+The P component provides a steering angle that is proportional to the 
+current cross-track error:
+
+steering_angle = -p * cte
+
+As a result, the car will try to stay as close as possible to a region where 
+the cross-track error would be zero. Being used alone, it will likely cause the 
+car to overshoot its target and drive in a constant left and right swerving 
+pattern.
+
+#### Integral (I) coefficient
+
+This parameter uses the accumulated cross-track error to determine the 
+steering angle. It's particularly useful if there's a mismatch between the 
+intended steering angle and how much the car is actually steering - by 
+accumulating the errors, it provides a mechanism to correct the steering 
+angle in such situations. 
+
+steering_angle = -i * sum(cte)
+
+#### Differential (D) coefficient
+
+The D coefficient addresses the overshooting issue posed by using a 
+P-controller alone. It operates on the difference between the current 
+error and the previous error. This way, the steering angle becomes less 
+abrupt as we get closer to the region of zero error.
+
+steering_angle = -d * (cte - previous_cte)
+
+#### Implementation details and parameter tuning
+
+To tune the values of P, I and D, I used twiddle (a.k.a. coordinate ascent). 
+Twiddle can be executed by providing the number of iterations it should run 
+for in every optimization loop to the pid binary. For instance, by using 
+the following command line, the tool will start in twiddle mode and use 
+100 steps to calculate the average error for every parameter selection 
+step:
+
+./pid 100
+
+By running twiddle with 1000 steps (enough to get through the first curve) 
+and a fixed throttle, I obtained the following coefficients:
+ 
+* P = 1.56387
+* I = 0.0079461
+* D = 10.886
+
+The implementation provided in this project uses the last 20 iterations to 
+calculate the accumulated cross-track error used by the integral component 
+of the controller. It's important to notice, however, that the integral 
+component should not be important in this scenario, given there's 
+no disconnection between the input steering angle and how much the car is 
+steering in the simulator (as proven by the parameters chosen by twiddle).
+
+To further improve parameter selection, I observed how the car behaved in 
+the full track. One noticeable point is that the cross-track error provided 
+by the simulator is not accurate in portions of the track, leading the car 
+to swerve more than necessary. Throttle was also not being controlled in 
+any meaningful way, so by adjusting the throttle it would be likely 
+necessary to adjust the PID parameters.
+
+Instead of using another PID controller for throttle I decided to use the 
+following formula:
+
+throttle = 0.5 - (0.49 * (|cte| / max_cte));
+
+This provided relatively fast speeds while greatly slowing down the car when 
+the cross track error was to big. By running twiddle once again and then 
+adjusting the parameters based on the car behavior over the full track, I 
+settled for the following parameters:
+
+* P = 0.25
+* I = 0.00
+* D = 5.00
+
+With all that, the car was able to reach top speeds close to 50MPH while 
+still remaining safely inside the track.
+
+
+---
+
 ## Dependencies
 
 * cmake >= 3.5
